@@ -181,6 +181,129 @@ flowchart TD
 - **Ferrite bead + 10–47 µF + 0.1 µF** create a **clean analog sensor rail** off the 5 V logic branch.
 - **DRV8833 rail** needs **470–1000 µF bulk** + **0.1 µF** near the driver.
 - **SIM7000G** typically needs **~4.0 V** with **high current peaks**; use a **dedicated buck** plus local bulk (e.g., 470–1000 µF low-ESR) if you add cellular at the field unit.
+  CheckSoil -- Yes --> CalcPWM[Calculate PWM based on Soil + Temp]
+  
+  CalcPWM --> SendCmd[Gateway Sends PWM Command via LoRa]
+  Delay --> SendCmd
+  SendCmd --> NanoESP[Nano ESP32 Generates PWM]
+  NanoESP --> DRV8833[DRV8833 Drivers Drive Pumps]
+  DRV8833 --> End[Cycle Complete]
+```
+
+**Logic summary:**  
+- If **rain is forecast**, irrigation is skipped or reduced.  
+- If soil moisture is **above threshold**, pumps remain off.  
+- If soil is **below threshold and no rain**, PWM is set based on dryness + temperature.  
+- Commands are sent from gateway → field via LoRa (or cached if fallback active).  
+
+---
+
+## 🔋 Power Flow
+
+```mermaid
+flowchart TD
+  LiPo[2S LiPo Battery (7.4V nominal)] --> Fuse[Protection Fuse / Polyfuse]
+  Fuse --> Reg[DC-DC Regulator R-78B5.0-1.5 → 5V]
+  Reg --> Bulk[Bulk Capacitors + Decoupling]
+  
+  Bulk --> LoRa32[TTGO LoRa32 (ESP32 + LoRa)]
+  Bulk --> NanoESP32[Arduino Nano ESP32 (PWM)]
+  Bulk --> Sensors[CD74HC4067 + DHT11 + INA219]
+  Bulk --> Drivers[DRV8833 Motor Drivers]
+  Bulk --> SIM7000G[SIM7000G NB-IoT/LTE (optional)]
+  
+  Drivers --> Pumps[Water Pumps]
+```
+
+**Power design notes:**  
+- **LiPo → Fuse → Regulator** ensures safe and stable power.  
+- **R-78B5.0-1.5 switching regulator** provides efficient 5 V supply.  
+- **Bulk capacitors** smooth transients (100 µF ×3 + 470–1000 µF near DRV8833).  
+- **0.1 µF ceramics** at each IC for high-frequency decoupling.  
+- SIM7000G requires higher peak currents (~2 A), so extra bulk capacitance may be needed if enabled.  
+
+---
+
+## 📊 Data Flow
+
+1. Field unit collects data (soil, temp/humidity, battery/current)  
+2. Primary: **LoRa uplink → Gateway → Azure**  
+3. Backup: **SIM7000G direct uplink → Azure** (if LoRa fails)  
+4. Gateway merges telemetry with **weather forecast** and computes **PWM setpoints**  
+5. **LoRa downlink** to field unit (Nano ESP32 drives pumps)  
+6. Azure IoT Hub updates dashboard and triggers alerts
+
+---
+
+## 🔧 Future Improvements
+
+- [ ] Add **OTA firmware updates** for ESP32 nodes (field + gateway)
+- [ ] Replace resistive soil sensors with **capacitive probes** for longer lifespan
+- [ ] Implement **data caching** when WiFi/Azure is offline
+- [ ] Add **solar charging + BMS** for field autonomy
+- [ ] Expand to support **more pumps or irrigation zones**
+- [ ] Finalize **SIM7000G NB-IoT/LTE fallback** logic at the field unit for robust direct-to-cloud telemetry
+
+---
+
+## 📜 License
+
+MIT License – free to use and modify. See [LICENSE](LICENSE).
+
+---
+
+## 🙌 Acknowledgments
+
+- [Espressif ESP32](https://www.espressif.com/)
+- [Azure IoT Hub](https://azure.microsoft.com/)
+- [OpenWeatherMap API](https://openweathermap.org/api)
+- [SIM7000G LTE/NB-IoT Module](https://simcom.ee/modules/lte-cat-m/sim7000g/)
+- Recom Power – R-78B5.0-1.5 regulator
+- Community resources on LoRa, IoT, and smart farming
+
+---
+
+## 🔋 Power Management
+
+```mermaid
+flowchart TD
+  BATT[2S LiPo 7.4 V (6.4–8.4 V)] --> FUSE[Inline Fuse / PTC]
+  FUSE --> TVS[TVS Diode (surge protection)]
+  TVS --> INA219B[INA219 on Battery Bus (V/I monitor)]
+  INA219B --> R78B[R-78B5.0-1.5 (5 V DC-DC)]
+
+  %% 5V rail splits
+  R78B -->|5 V| LOGIC[5 V Logic Rail]
+  R78B -->|5 V| MOTOR[5 V Motor Driver Rail]
+  R78B -->|5 V (optional)| CELL[Optional 5V→4.0V Buck for SIM7000G]
+
+  %% Logic branch decoupling / filtering
+  LOGIC --> FB[Ferrite Bead / RC Filter (sensor rail)]
+  FB --> SENS[Sensors: CD74HC4067, DHT11, INA219 (logic side)]
+  LOGIC --> MCUS[TTGO LoRa32 + Nano ESP32]
+  LOGIC --> CER1[0.1 µF decoupling at each IC]
+
+  %% Motor branch
+  MOTOR --> DRV[2× DRV8833 Motor Drivers]
+  DRV --> PUMPS[4× Pumps]
+  MOTOR --> BULK[470–1000 µF Bulk Cap near DRV8833]
+  MOTOR --> CER2[0.1 µF decoupling at DRV8833]
+
+  %% Cellular option
+  CELL --> SIM[SIM7000G (NB-IoT/LTE)]
+  SIM --> ANT[Antenna, short coax]
+  note right of SIM: Requires ~3.4–4.2 V and peak currents\nup to ~2 A; use dedicated buck and bulk caps
+
+  %% Notes
+  note right of R78B: Place 10–47 µF at VIN and 10–22 µF at VOUT\nplus 0.1 µF ceramics for stability
+  note right of BULK: Bulk cap reduces start/stop dips\nand motor transients
+```
+**Notes:**
+- **Fuse/PTC** on battery + for safety; **TVS diode** for transient protection.
+- **R-78B5.0-1.5** feeds both logic and motor rails; add **10–47 µF at VIN** and **10–22 µF at VOUT** + **0.1 µF ceramics** close to pins.
+- **Ferrite bead + 10–47 µF + 0.1 µF** create a **clean analog sensor rail** off the 5 V logic branch.
+- **DRV8833 rail** needs **470–1000 µF bulk** + **0.1 µF** near the driver.
+- **SIM7000G** typically needs **~4.0 V** with **high current peaks**; use a **dedicated buck** plus local bulk (e.g., 470–1000 µF low-ESR) if you add cellular at the field unit.
      - **Transmits PWM commands back over LoRa** to the field unit where the Nano ESP32 drives the DRV8833s
    - **Future expansion**: optional **SIM7000G NB-IoT/LTE module** for cellular connectivity when WiFi is not available
 
