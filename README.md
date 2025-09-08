@@ -1,27 +1,27 @@
 # Smart Irrigation (LoRa + ESP32 + Web UI + Azure)
 
-A long-range soil monitoring and irrigation controller using **two TTGO LoRa32 v1.6.1** boards and an **Arduino Nano ESP32 (S3)** at the field for PWM drive. The **gateway** computes irrigation decisions (with weather), then sends **PWM setpoints back to the field** over LoRa. The **field** forwards those PWM values over **UART** to the Nano ESP32 which drives **2× DRV8833** (4 pumps).
+A long-range soil monitoring and irrigation controller using **two TTGO LoRa32 v1.6.1** boards and an **Arduino Nano ESP32 (S3)** at the field for PWM drive. The **gateway** computes irrigation decisions (with weather), then sends **PWM setpoints back to the field** over LoRa. The **field** forwards those PWM values over **UART** to the Nano ESP32 which drives **2x DRV8833** (4 pumps).
 
 - **Field unit (Transmitter + Actuation):**  
-  TTGO LoRa32 reads 10 soil channels (+ DHT11, INA219), sends telemetry to the gateway, and **relays pump PWM commands to a Nano ESP32** over UART. The **Nano ESP32** outputs PWM to **2× DRV8833** → **4 pumps**.
+  TTGO LoRa32 reads 10 soil channels (+ DHT11, INA219), sends telemetry to the gateway, and **relays pump PWM commands to a Nano ESP32** over UART. The **Nano ESP32** outputs PWM to **2x DRV8833** -> **4 pumps**.
 
 - **Gateway (Receiver + Logic + Cloud):**  
   TTGO LoRa32 hosts the **local web UI**, fetches **OpenWeatherMap** weather, applies **protections & thresholds**, and (optionally) publishes to **Azure IoT Hub**. It returns **PWM setpoints** to the field via LoRa.
 
 ---
 
-## 🧭 Topology
+## Topology
 
 ```mermaid
 flowchart LR
-  subgraph Field [Field Unit — Transmitter + Actuation]
+  subgraph Field [Field Unit - Transmitter + Actuation]
     TX[TTGO LoRa32 (Field TX)]
-    MUX[CD74HC4067 — 10 soil]
+    MUX[CD74HC4067 - 10 soil]
     DHT[DHT11]
-    INA[INA219 — bus V/I]
-    Nano[Nano ESP32 (PWM 0–255)]
-    DRV[2× DRV8833]
-    PUMPS[4× Pumps]
+    INA[INA219 - bus V/I]
+    Nano[Nano ESP32 (PWM 0-255)]
+    DRV[2x DRV8833]
+    PUMPS[4x Pumps]
 
     TX --> MUX
     TX --> DHT
@@ -33,7 +33,7 @@ flowchart LR
 
   TX <-->|LoRa| RX
 
-  subgraph Gateway [Gateway — Receiver + Logic + Cloud]
+  subgraph Gateway [Gateway - Receiver + Logic + Cloud]
     RX[TTGO LoRa32 (Gateway RX)]
     Web[Local Web UI]
     Weather[OpenWeatherMap API]
@@ -49,52 +49,51 @@ flowchart LR
 
 ---
 
-## ⚡ Power Flow (Field Unit)
+## Power Flow (Field Unit)
 
 ```mermaid
 flowchart TD
-  LiPo[2S LiPo Battery (7.4 V nominal)] --> Fuse[Polyfuse / Protection]
-  Fuse --> Reg[R-78B5.0-1.5 → 5V]
+  LiPo[2S LiPo Battery (7.4 V nominal)] --> Reg[R-78B5.0-1.5 -> 5V]
   Reg --> Bulk[Bulk + Decoupling Capacitors]
 
   Bulk --> TX[TTGO LoRa32 TX]
   Bulk --> NanoESP[Nano ESP32]
   Bulk --> MUX[CD74HC4067 + DHT11 + INA219]
-  Bulk --> DRV[2× DRV8833]
+  Bulk --> DRV[2x DRV8833]
   Bulk --> SIM[SIM7000G (optional)]
   DRV --> PUMPS[Water Pumps]
 ```
 
 Notes:
-- 3× 100 µF + 1× 470–1000 µF bulk caps recommended.  
-- 0.1 µF ceramic decouplers at each IC.  
-- SIM7000G requires peak current buffering (≥ 1000 µF).
+- 3x 100 uF + 1x 470-1000 uF bulk caps recommended.  
+- 0.1 uF ceramic decouplers at each IC.  
+- SIM7000G requires peak current buffering (>= 1000 uF).
 
 ---
 
-## 💧 Pump Control Logic
+## Pump Control Logic
 
-- Field **does not compute irrigation** — it only reads sensors and relays data.  
+- Field does not compute irrigation - it only reads sensors and relays data.  
 - Gateway applies logic:  
   - Skip/reduce irrigation if rain is forecast.  
-  - Enforce **per-pump soil cutoff %**.  
-  - Apply **10 min lockout** after pump turns OFF (prevents chattering).  
-  - Auto-return from **manual override** after timeout.  
-- Gateway sends final **P,<d0>,<d1>,<d2>,<d3>** (0–255) over LoRa → Field → Nano ESP32 PWM.
+  - Enforce per-pump soil cutoff %.  
+  - Apply 10 min lockout after pump turns OFF (prevents chattering).  
+  - Auto-return from manual override after timeout.  
+- Gateway sends final `P,<d0>,<d1>,<d2>,<d3>` (0-255) over LoRa -> Field -> Nano ESP32 PWM.
 
 ---
 
-## 📊 Data Flow
+## Data Flow
 
-1. **Field** collects soil, temp/hum, battery, current → uplinks CSV via LoRa.  
-2. **Gateway** merges telemetry with weather forecast.  
-3. **Gateway** computes PWM setpoints → LoRa downlink.  
-4. **Nano ESP32** generates PWM → DRV8833 → pumps.  
-5. **Gateway** syncs to **Azure IoT Hub** and local Web UI.  
+1. Field collects soil, temp/hum, battery, current -> uplinks CSV via LoRa.  
+2. Gateway merges telemetry with weather forecast.  
+3. Gateway computes PWM setpoints -> LoRa downlink.  
+4. Nano ESP32 generates PWM -> DRV8833 -> pumps.  
+5. Gateway syncs to Azure IoT Hub and local Web UI.  
 
 ---
 
-## 🔧 Features
+## Features
 
 - 10 soil channels via CD74HC4067 multiplexer.  
 - Real-time telemetry on OLED + Web UI.  
@@ -105,7 +104,7 @@ Notes:
 
 ---
 
-## 📦 Future Improvements
+## Future Improvements
 
 - NB-IoT/LTE fallback (SIM7000G at field).  
 - OTA firmware updates for ESP32 nodes.  
@@ -114,13 +113,13 @@ Notes:
 
 ---
 
-## 📜 License
+## License
 
-MIT License – free to use and modify.
+MIT License - free to use and modify.
 
 ---
 
-## 🙌 Acknowledgments
+## Acknowledgments
 
 - Espressif ESP32  
 - TTGO LoRa32  
